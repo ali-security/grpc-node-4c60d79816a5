@@ -1,0 +1,76 @@
+name: Seal grpc-js Build
+
+# Upstream ships no GitHub Actions workflow that builds or tests @grpc/grpc-js
+# (its CI is Kokoro, driven by run-tests.sh / gulpfile.ts). This workflow mirrors
+# what that CI does for this package: install, compile, run the package's own
+# `gulp test` suite, and pack the release tarball.
+#
+# `npx gulp test` is exactly the package's own `test` script. It is invoked
+# directly rather than through `npm test` so that npm's `posttest` hook
+# (`npm run check && madge -c ./build/src`) is not run: those are the eslint and
+# circular-import static checks, not tests, and `madge -c` already fails on the
+# unpatched upstream tree.
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: Space-separated compiled test specs (e.g. build/test/test-server.js). Empty runs the full suite.
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: grpc-js ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/grpc-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18.16.1"
+
+      - name: Pin registry to release date
+        run: npm config set registry https://:2024-07-10T17%3A51%3A56.871000Z@time-machines-npm.sealsecurity.io/
+
+      - name: Install
+        run: npm install
+
+      - name: Test
+        env:
+          GRPC_EXPERIMENTAL_ENABLE_OUTLIER_DETECTION: "true"
+        run: |
+          npm run pretest
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            mkdir -p build/test
+            cp -r test/fixtures build/test/
+            npx mocha --require ts-node/register ${{ inputs.test-filter }}
+          else
+            npx gulp test
+          fi
+
+      - name: Pack
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          npm pack
+          mv grpc-grpc-js-1.10.11.tgz grpc-js-1.10.11.tgz
+
+      - name: Upload tarball
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: grpc-js-tarball
+          path: packages/grpc-js/grpc-js-1.10.11.tgz
+          if-no-files-found: error

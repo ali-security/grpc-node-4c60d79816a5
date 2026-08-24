@@ -129,7 +129,10 @@ describe('Channel idle timer', () => {
   });
 });
 
-describe('Channel idle timer with UDS', () => {
+// Unix domain socket listen is denied (EACCES) on the Windows CI runner.
+const describeUds = process.platform === 'win32' ? describe.skip : describe;
+
+describeUds('Channel idle timer with UDS', () => {
   let server: TestServer;
   let client: TestClient | null = null;
   before(() => {
